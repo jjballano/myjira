@@ -99,4 +99,12 @@ export interface IssuePatch {
   labels?: string[];
   parent?: string | null;
   assignee?: string | null;
+  /** priority id */
+  priority?: string;
+}
+
+export interface Priority {
+  id: string;
+  name: string;
+  icon?: string;
 }

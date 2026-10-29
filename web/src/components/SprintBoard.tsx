@@ -6,7 +6,7 @@ import { toast } from '../toast';
 import type { Column, Issue, ParentRef } from '../types';
 import { colorFor, typeColor } from '../util';
 import { Icon, PriorityIcon, StatusIcon } from './icons';
-import { CardMenu, type CardMenuState } from './CardMenu';
+import { CardMenu, rankMoves, type MenuState } from './CardMenu';
 import { AssigneePicker, LabelChips } from './Pickers';
 import { Progress } from './Progress';
 import type { Group } from './SprintView';
@@ -386,22 +386,13 @@ export function SprintBoard({
     return () => board.removeEventListener('scroll', compute);
   }, [hoverStory, subtasksOf, colOf]);
 
-  const [menu, setMenu] = useState<CardMenuState | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   /** `peers` are the keys it can be ranked among (units of its cell, or its sibling subtasks), in order. */
   const openMenu = (e: React.MouseEvent, issue: Issue, peers: string[]) => {
     e.preventDefault();
     e.stopPropagation();
-    const ranked = peers.filter((k) => rankIndex.has(k));
-    const first = ranked[0];
-    const last = ranked[ranked.length - 1];
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      issue,
-      top: first && first !== issue.key ? { pos: 'before', target: first } : undefined,
-      bottom: last && last !== issue.key ? { pos: 'after', target: last } : undefined,
-    });
+    setMenu({ x: e.clientX, y: e.clientY, issue, moves: rankMoves(issue.key, peers.filter((k) => rankIndex.has(k))) });
   };
 
   const drag = useRef<DragState | null>(null);

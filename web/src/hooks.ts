@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { toast } from './toast';
-import type { Board, Column, Issue, IssueDetail, IssuePatch, Me, Sprint, Transition, User } from './types';
+import type { Board, Column, Issue, IssueDetail, IssuePatch, Me, Priority, Sprint, Transition, User } from './types';
 
 export function useLocalStorage<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(() => {
@@ -133,6 +133,8 @@ export function useIssueActions() {
       run({ key, fn: () => api.transition(key, t.id), optimistic: { status: t.to } }),
     assign: (key: string, user: User | null) =>
       run({ key, fn: () => api.updateIssue(key, { assignee: user?.accountId ?? null }), optimistic: { assignee: user } }),
+    setPriority: (key: string, p: Priority) =>
+      run({ key, fn: () => api.updateIssue(key, { priority: p.id }), optimistic: { priority: { name: p.name, icon: p.icon } } }),
     setLabels: (key: string, labels: string[]) =>
       run({ key, fn: () => api.updateIssue(key, { labels }), optimistic: { labels } }),
     update: (key: string, patch: IssuePatch, optimistic?: Partial<Issue>) =>
@@ -145,8 +147,13 @@ export function useIssueActions() {
           parent: parent && { key: parent.key, summary: parent.summary, status: parent.status, issuetype: parent.issuetype },
         },
       }),
-    moveToSprint: (key: string, sprint: Sprint | null) =>
-      run({ key, fn: () => api.moveToSprint(key, sprint?.id ?? null), success: `${key} → ${sprint?.name ?? 'Backlog'}` }),
+    moveToSprint: (key: string, sprint: Sprint | null, opts?: { at?: { pos: 'before' | 'after'; target: string }; local?: () => void }) =>
+      run({
+        key,
+        fn: () => api.moveToSprint(key, sprint?.id ?? null, opts?.at),
+        local: opts?.local,
+        success: `${key} → ${sprint?.name ?? 'Backlog'}`,
+      }),
     rank: (key: string, pos: 'before' | 'after', target: string) =>
       run({ key, fn: () => api.rank(key, pos, target), local: () => moveLocal(key, pos, target) }),
     deleteIssue: (key: string) =>

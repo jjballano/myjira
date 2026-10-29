@@ -1,4 +1,4 @@
-import type { Board, Column, Issue, IssueDetail, IssuePatch, Me, Sprint, Transition, User } from './types';
+import type { Board, Column, Issue, IssueDetail, IssuePatch, Me, Priority, Sprint, Transition, User } from './types';
 
 async function req<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const res = await fetch('/api' + path, {
@@ -32,12 +32,13 @@ export const api = {
   comment: (key: string, body: string) => req(`/issues/${enc(key)}/comments`, { method: 'POST', body: { body } }),
   worklog: (key: string, body: { timeSpent: string; started: string; comment?: string }) =>
     req(`/issues/${enc(key)}/worklog`, { method: 'POST', body }),
-  moveToSprint: (key: string, sprintId: number | null) =>
-    req(`/issues/${enc(key)}/sprint`, { method: 'POST', body: { sprintId } }),
+  moveToSprint: (key: string, sprintId: number | null, at?: { pos: 'before' | 'after'; target: string }) =>
+    req(`/issues/${enc(key)}/sprint`, { method: 'POST', body: { sprintId, ...(at && { [at.pos]: at.target }) } }),
   rank: (key: string, pos: 'before' | 'after', target: string) =>
     req('/rank', { method: 'PUT', body: { issues: [key], [pos]: target } }),
   assignable: (issueKey: string, query: string) =>
     req<User[]>(`/users/assignable?issueKey=${enc(issueKey)}&query=${enc(query)}`),
   labels: () => req<string[]>('/labels'),
+  priorities: () => req<Priority[]>('/priorities'),
   parents: (project: string, query: string) => req<Issue[]>(`/parents?project=${enc(project)}&query=${enc(query)}`),
 };

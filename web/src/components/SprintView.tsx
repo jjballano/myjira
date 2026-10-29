@@ -145,6 +145,7 @@ export function SprintView() {
   const groups = groupIssues(visible, all, laneBy, columns, epics);
   const left = daysLeft(sprint?.endDate);
 
+  const allGroupsFolded = groups.length > 0 && groups.every((g) => collapsed.has(g.id));
   const toggle = (id: string) =>
     setCollapsed((s) => {
       const n = new Set(s);
@@ -188,6 +189,14 @@ export function SprintView() {
           hidden={hiddenStatusIds}
           onChange={(ids) => setHiddenStatusStore({ ...hiddenStatusStore, [board.id]: ids })}
         />
+        {laneBy !== 'none' && groups.length > 0 && (
+          <button className="btn btn-ghost" onClick={() => setCollapsed(allGroupsFolded ? new Set() : new Set(groups.map((g) => g.id)))}>
+            <Icon.Chevron open={!allGroupsFolded} />{' '}
+            {allGroupsFolded
+              ? layout === 'board' ? 'Desplegar swimlanes' : 'Desplegar grupos'
+              : layout === 'board' ? 'Plegar swimlanes' : 'Plegar grupos'}
+          </button>
+        )}
         {layout === 'board' && storiesWithSubtasks.length > 0 && (
           <button
             className="btn btn-ghost"

@@ -62,7 +62,7 @@ export function StatusPicker({ issueKey, status, variant = 'icon' }: { issueKey:
 
 /* ---------- Assignee ---------- */
 
-function AssigneeMenu({ issueKey, assignee, close }: { issueKey: string; assignee: User | null; close: () => void }) {
+export function AssigneeMenu({ issueKey, assignee, close }: { issueKey: string; assignee: User | null; close: () => void }) {
   const { me } = useApp();
   const { assign } = useIssueActions();
   const [q, setQ] = useState('');
@@ -238,7 +238,7 @@ export function SprintPicker({ issueKey, sprint }: { issueKey: string; sprint: S
 
 /* ---------- Parent ---------- */
 
-function ParentMenu({ issueKey, project, parent, close }: { issueKey: string; project: string; parent: ParentRef | null; close: () => void }) {
+export function ParentMenu({ issueKey, project, parent, close }: { issueKey: string; project: string; parent: ParentRef | null; close: () => void }) {
   const { setParent } = useIssueActions();
   const [q, setQ] = useState('');
   const dq = useDebounced(q);

@@ -237,12 +237,13 @@ app.get('/api/issues/:key', async (req, res) => {
 });
 
 app.put('/api/issues/:key', async (req, res) => {
-  const { summary, description, labels, parent, assignee } = req.body ?? {};
+  const { summary, description, labels, parent, assignee, priority } = req.body ?? {};
   const fields = {};
   if (summary !== undefined) fields.summary = summary;
   if (description !== undefined) fields.description = description;
   if (labels !== undefined) fields.labels = labels;
   if (parent !== undefined) fields.parent = parent ? { key: parent } : null;
+  if (priority !== undefined) fields.priority = { id: priority };
   if (Object.keys(fields).length) {
     // v2 takes description as wiki markup, which round-trips through a plain textarea.
     await jira(`/rest/api/2/issue/${k(req)}`, { method: 'PUT', body: { fields } });
@@ -286,10 +287,16 @@ app.post('/api/issues/:key/worklog', async (req, res) => {
 });
 
 app.post('/api/issues/:key/sprint', async (req, res) => {
-  const { sprintId } = req.body ?? {};
+  const { sprintId, before, after } = req.body ?? {};
   const body = { issues: [req.params.key] };
-  if (sprintId) await jira(`/rest/agile/1.0/sprint/${sprintId}/issue`, { method: 'POST', body });
-  else await jira('/rest/agile/1.0/backlog/issue', { method: 'POST', body });
+  const rank = before ? { rankBeforeIssue: before } : after ? { rankAfterIssue: after } : {};
+  if (sprintId) {
+    await jira(`/rest/agile/1.0/sprint/${sprintId}/issue`, { method: 'POST', body: { ...body, ...rank } });
+  } else {
+    // The backlog endpoint can't rank, so place it afterwards.
+    await jira('/rest/agile/1.0/backlog/issue', { method: 'POST', body });
+    if (before || after) await jira('/rest/agile/1.0/issue/rank', { method: 'PUT', body: { ...body, ...rank } });
+  }
   res.json({ ok: true });
 });
 
@@ -312,6 +319,11 @@ app.get('/api/users/assignable', async (req, res) => {
     query: { issueKey: req.query.issueKey, query: req.query.query, maxResults: 30 },
   });
   res.json(users.map(user));
+});
+
+app.get('/api/priorities', async (_req, res) => {
+  const data = await jira('/rest/api/3/priority/search', { query: { maxResults: 100 } });
+  res.json((data.values ?? []).map((p) => ({ id: p.id, name: p.name, icon: p.iconUrl })));
 });
 
 let labelsCache = { at: 0, values: [] };

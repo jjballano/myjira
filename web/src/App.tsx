@@ -6,6 +6,7 @@ import { useToasts } from './toast';
 import type { Board, Me } from './types';
 import { Avatar, Icon } from './components/icons';
 import { BacklogView } from './components/BacklogView';
+import { GoToIssue } from './components/GoToIssue';
 import { IssuePanel } from './components/IssuePanel';
 import { Menu } from './components/Menu';
 import { Popover } from './components/Popover';
@@ -48,7 +49,7 @@ function Setup({ message }: { message: string }) {
   );
 }
 
-function Sidebar({ me, board, boards, onBoard, view, onView }: { me: Me; board: Board; boards: Board[]; onBoard: (id: number) => void; view: View; onView: (v: View) => void }) {
+function Sidebar({ me, board, boards, onBoard, view, onView, onOpen }: { me: Me; board: Board; boards: Board[]; onBoard: (id: number) => void; view: View; onView: (v: View) => void; onOpen: (key: string) => void }) {
   const qc = useQueryClient();
   const fetching = useIsFetching();
   return (
@@ -74,6 +75,7 @@ function Sidebar({ me, board, boards, onBoard, view, onView }: { me: Me; board: 
           />
         )}
       </Popover>
+      <GoToIssue projectKey={board.projectKey} onOpen={onOpen} />
       <div className="nav">
         <button className={`nav-item${view === 'sprint' ? ' on' : ''}`} onClick={() => onView('sprint')}>
           <Icon.Sprint /> Sprint actual
@@ -161,7 +163,7 @@ export function App() {
   return (
     <AppContext.Provider value={ctx}>
       <div className="app">
-        <Sidebar me={meQ.data} board={board} boards={boards} onBoard={setBoardId} view={view} onView={(v) => navigate(v, null)} />
+        <Sidebar me={meQ.data} board={board} boards={boards} onBoard={setBoardId} view={view} onView={(v) => navigate(v, null)} onOpen={openIssue} />
         <div className="main">{view === 'sprint' ? <SprintView /> : <BacklogView />}</div>
         {issue && <IssuePanel key={issue} issueKey={issue} onClose={closeIssue} onOpen={openIssue} />}
         <Toasts />
