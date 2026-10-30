@@ -1,5 +1,14 @@
 import type { Board, Column, Issue, IssueDetail, IssuePatch, Me, Priority, Sprint, Transition, User } from './types';
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly login = false,
+  ) {
+    super(message);
+  }
+}
+
 async function req<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const res = await fetch('/api' + path, {
     method: init?.method ?? 'GET',
@@ -7,7 +16,11 @@ async function req<T>(path: string, init?: { method?: string; body?: unknown }):
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error ?? res.statusText);
+  if (!res.ok) {
+    // The session stopped working mid-use: reload so the app lands on the login screen.
+    if (data?.login && path !== '/me') window.location.reload();
+    throw new ApiError(data?.error ?? res.statusText, !!data?.login);
+  }
   return data as T;
 }
 
@@ -15,6 +28,9 @@ const enc = encodeURIComponent;
 
 export const api = {
   me: () => req<Me>('/me'),
+  authConfig: () => req<{ site: string | null }>('/auth/config'),
+  login: (body: { site?: string; email: string; token: string }) => req('/auth/login', { method: 'POST', body }),
+  logout: () => req('/auth/logout', { method: 'POST' }),
   boards: () => req<Board[]>('/boards'),
   sprints: (boardId: number) => req<Sprint[]>(`/boards/${boardId}/sprints`),
   columns: (boardId: number) => req<Column[]>(`/boards/${boardId}/columns`),
@@ -25,6 +41,7 @@ export const api = {
   backlogCount: (boardId: number) => req<{ total: number }>(`/boards/${boardId}/backlog/count`),
   issuesByKeys: (keys: string[]) => req<Issue[]>(`/issues?keys=${enc(keys.join(','))}`),
   issue: (key: string) => req<IssueDetail>(`/issues/${enc(key)}`),
+  children: (key: string) => req<Issue[]>(`/issues/${enc(key)}/children`),
   updateIssue: (key: string, patch: IssuePatch) => req(`/issues/${enc(key)}`, { method: 'PUT', body: patch }),
   deleteIssue: (key: string) => req(`/issues/${enc(key)}`, { method: 'DELETE' }),
   transitions: (key: string) => req<Transition[]>(`/issues/${enc(key)}/transitions`),

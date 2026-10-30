@@ -6,6 +6,7 @@ import { toast } from '../toast';
 import type { IssueDetail } from '../types';
 import { colorFor, fmtFull, relTime } from '../util';
 import { Avatar, Icon, PriorityIcon } from './icons';
+import { IssueRow } from './IssueRow';
 import { AssigneePicker, LabelsPicker, ParentPicker, SprintPicker, StatusPicker } from './Pickers';
 
 function AutoTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -100,6 +101,34 @@ function Description({ issue }: { issue: IssueDetail }) {
           Guardar
         </button>
       </div>
+    </div>
+  );
+}
+
+function Children({ issue }: { issue: IssueDetail }) {
+  // Under ['issues', …] so status/assignee changes made from here patch it optimistically.
+  const { data, isLoading } = useQuery({ queryKey: ['issues', 'children', issue.key], queryFn: () => api.children(issue.key) });
+  if (issue.issuetype?.subtask || (!isLoading && !data?.length)) return null;
+  const done = data?.filter((i) => i.status?.category === 'done').length ?? 0;
+  return (
+    <div className="children">
+      <h3>
+        {(issue.issuetype?.hierarchyLevel ?? 0) > 0 ? 'Issues de la épica' : 'Subtareas'}
+        {data && (
+          <span className="muted">
+            {done}/{data.length}
+          </span>
+        )}
+      </h3>
+      {isLoading ? (
+        <div className="muted small">Cargando…</div>
+      ) : (
+        <div className="children-list">
+          {data!.map((i) => (
+            <IssueRow key={i.key} issue={i} showParent={false} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -293,6 +322,7 @@ export function IssuePanel({ issueKey, onClose, onOpen }: { issueKey: string; on
             <main className="panel-main">
               <Title issue={issue} />
               <Description issue={issue} />
+              <Children issue={issue} />
               <Comments issue={issue} />
             </main>
             <aside className="panel-side">

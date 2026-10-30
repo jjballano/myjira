@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useApp, useLocalStorage } from '../hooks';
 import type { Column, Issue, ParentRef, User } from '../types';
 import { colorFor, daysLeft, fmtRange } from '../util';
+import { EpicFilter, NO_EPIC, type EpicOption } from './EpicFilter';
 import { applyFilters, assigneesOf, emptyFilters, FilterBar, type Filters } from './FilterBar';
 import { Avatar, Icon, StatusIcon } from './icons';
 import { IssueRow } from './IssueRow';
@@ -105,6 +106,8 @@ export function SprintView() {
   const [hiddenStatusStore, setHiddenStatusStore] = useLocalStorage<Record<string, string[]>>('hiddenStatusIds', {});
   const hiddenStatusIds = hiddenStatusStore[board.id] ?? [];
   const [collapsedStories, setCollapsedStories] = useLocalStorage<string[]>('collapsedStories', []);
+  const [hiddenEpicStore, setHiddenEpicStore] = useLocalStorage<Record<string, string[]>>('hiddenEpics', {});
+  const hiddenEpics = hiddenEpicStore[board.id] ?? [];
   const searchRef = useRef<HTMLInputElement>(null);
   useSlashFocus(searchRef);
 
@@ -130,8 +133,22 @@ export function SprintView() {
   const epics = useMemo(() => new Map((epicIssues ?? []).map((e) => [e.key, e])), [epicIssues]);
 
   const all = issues ?? [];
+  const byKey = useMemo(() => new Map(all.map((i) => [i.key, i])), [all]);
+  const epicKeyOf = (i: Issue) => epicOf(i, byKey)?.key ?? NO_EPIC;
+  // Epics in the sprint, in swimlane order, plus "no epic" at the end when some issue has none.
+  const epicOptions = useMemo<EpicOption[]>(() => {
+    const seen = new Map<string, EpicOption>();
+    for (const i of all) {
+      const e = epicOf(i, byKey);
+      if (e && !seen.has(e.key)) seen.set(e.key, { key: e.key, summary: epics.get(e.key)?.summary ?? e.summary });
+    }
+    const out = [...seen.values()];
+    if (all.some((i) => !epicOf(i, byKey))) out.push({ key: NO_EPIC, summary: '' });
+    return out;
+  }, [all, byKey, epics]);
+  const epicFiltered = laneBy === 'epic' && hiddenEpics.length > 0;
   const visible = applyFilters(
-    all.filter((i) => !hiddenStatusIds.includes(i.status?.id ?? '')),
+    all.filter((i) => !hiddenStatusIds.includes(i.status?.id ?? '') && (!epicFiltered || !hiddenEpics.includes(epicKeyOf(i)))),
     filters,
   );
   // Stories with subtasks in view (on the board or as a placeholder): the ones the board can fold.
@@ -189,6 +206,13 @@ export function SprintView() {
           hidden={hiddenStatusIds}
           onChange={(ids) => setHiddenStatusStore({ ...hiddenStatusStore, [board.id]: ids })}
         />
+        {laneBy === 'epic' && epicOptions.length > 0 && (
+          <EpicFilter
+            epics={epicOptions}
+            hidden={hiddenEpics}
+            onChange={(keys) => setHiddenEpicStore({ ...hiddenEpicStore, [board.id]: keys })}
+          />
+        )}
         {laneBy !== 'none' && groups.length > 0 && (
           <button className="btn btn-ghost" onClick={() => setCollapsed(allGroupsFolded ? new Set() : new Set(groups.map((g) => g.id)))}>
             <Icon.Chevron open={!allGroupsFolded} />{' '}

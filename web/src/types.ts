@@ -8,6 +8,8 @@ export interface User {
 
 export interface Me extends User {
   baseUrl: string;
+  /** Signed in through the login form (vs. the server's .env token). */
+  session: boolean;
 }
 
 export interface Status {
@@ -63,6 +65,10 @@ export interface Board {
 export interface Column {
   name: string;
   statusIds: string[];
+  /** Parallel to `statusIds`. */
+  statusNames?: string[];
+  /** Set when this column is one status of a board column split apart. */
+  splitFrom?: string;
 }
 
 export interface Transition {

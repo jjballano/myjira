@@ -1,5 +1,7 @@
 import express from 'express';
-import { existsSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,17 +12,22 @@ const {
   PORT = 3101,
 } = process.env;
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = JIRA_BASE_URL.replace(/\/$/, '');
-const AUTH = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
 const LIST_FIELDS = 'summary,status,assignee,issuetype,priority,parent,labels,updated';
 
 class HttpError extends Error {
-  constructor(status, message, details) {
+  constructor(status, message, details, login = false) {
     super(message);
     this.status = status;
     this.details = details;
+    this.login = login;
   }
 }
+
+/** Per-request Jira target: `api` to call, `site` for browser links, `auth` header. */
+const jiraCtx = new AsyncLocalStorage();
+const ctx = () => jiraCtx.getStore();
 
 function jiraErrorMessage(data, status) {
   if (data && typeof data === 'object') {
@@ -32,17 +39,15 @@ function jiraErrorMessage(data, status) {
 }
 
 async function jira(pathname, { method = 'GET', body, query } = {}) {
-  if (!BASE || !JIRA_EMAIL || !JIRA_API_TOKEN) {
-    throw new HttpError(500, 'Faltan JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN en .env');
-  }
-  const url = new URL(BASE + pathname);
+  const { api, auth } = ctx();
+  const url = new URL(api + pathname);
   for (const [k, v] of Object.entries(query ?? {})) {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   }
   const res = await fetch(url, {
     method,
     headers: {
-      Authorization: AUTH,
+      Authorization: auth,
       Accept: 'application/json',
       ...(body !== undefined && { 'Content-Type': 'application/json' }),
     },
@@ -55,6 +60,8 @@ async function jira(pathname, { method = 'GET', body, query } = {}) {
   } catch {
     data = text;
   }
+  // A revoked token or a changed password: send the user back to the login form.
+  if (res.status === 401) throw new HttpError(401, 'Tu sesión de Jira ya no es válida, vuelve a entrar', data, true);
   if (!res.ok) throw new HttpError(res.status, jiraErrorMessage(data, res.status), data);
   return data;
 }
@@ -134,7 +141,7 @@ function rewriteHtml(html) {
   if (!html) return '';
   return html
     .replace(/src="(?:https?:\/\/[^"/]*atlassian\.net)?(\/[^"]*)"/g, (_, p) => `src="/api/asset?path=${encodeURIComponent(p)}"`)
-    .replace(/href="(\/[^"]*)"/g, (_, p) => `href="${BASE}${p}" target="_blank" rel="noreferrer"`);
+    .replace(/href="(\/[^"]*)"/g, (_, p) => `href="${ctx().site}${p}" target="_blank" rel="noreferrer"`);
 }
 
 const app = express();
@@ -142,9 +149,82 @@ app.use(express.json({ limit: '2mb' }));
 
 const k = (req) => encodeURIComponent(req.params.key);
 
+/* ---------- auth ---------- */
+
+// Each user signs in with their own email + API token. The token stays on the server;
+// the browser only holds a random session id. If .env has credentials, they're used when there's no session.
+const SID = 'myjira_sid';
+const SESSIONS_FILE = path.join(ROOT, '.sessions.json');
+
+// Persisted so `--watch` restarts don't log everyone out. Holds tokens: gitignored.
+const sessions = new Map(existsSync(SESSIONS_FILE) ? Object.entries(JSON.parse(readFileSync(SESSIONS_FILE, 'utf8'))) : []);
+const saveSessions = () => writeFileSync(SESSIONS_FILE, JSON.stringify(Object.fromEntries(sessions)), { mode: 0o600 });
+
+const cookies = (req) =>
+  Object.fromEntries(
+    (req.headers.cookie ?? '')
+      .split(';')
+      .map((c) => c.trim().split('='))
+      .filter(([k]) => k)
+      .map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]),
+  );
+const cookieOpts = (req) => ({ httpOnly: true, sameSite: 'strict', secure: req.secure, path: '/' });
+const basic = (email, token) => 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
+const ENV_AUTH = BASE && JIRA_EMAIL && JIRA_API_TOKEN ? { site: BASE, auth: basic(JIRA_EMAIL, JIRA_API_TOKEN) } : null;
+
+// Only Jira Cloud sites, so the proxy can't be pointed at arbitrary hosts. JIRA_BASE_URL pins the site.
+function siteUrl(input) {
+  if (BASE) return BASE;
+  let url;
+  try {
+    url = new URL(String(input ?? '').trim().replace(/^(?!https?:\/\/)/, 'https://'));
+  } catch {
+    throw new HttpError(400, 'URL de Jira inválida');
+  }
+  if (!/^[a-z0-9-]+\.atlassian\.net$/i.test(url.hostname)) throw new HttpError(400, 'La URL debe ser https://<tu-sitio>.atlassian.net');
+  return `https://${url.hostname.toLowerCase()}`;
+}
+
+app.get('/api/auth/config', (_req, res) => res.json({ site: BASE || null }));
+
+app.post('/api/auth/login', async (req, res) => {
+  const { site: rawSite, email, token } = req.body ?? {};
+  if (!email || !token) throw new HttpError(400, 'Faltan email o API token');
+  const site = siteUrl(rawSite);
+  // Pasted tokens can carry line breaks or zero-width characters; a real token has neither.
+  const clean = String(token).replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, '');
+  const auth = basic(String(email).trim(), clean);
+  try {
+    await jiraCtx.run({ api: site, site, auth }, () => jira('/rest/api/3/myself'));
+  } catch (e) {
+    console.warn(`Login rechazado para ${email} en ${site}: Jira ${e.status ?? e.message} (token de ${clean.length} caracteres)`);
+    if (e.status === 401 || e.status === 403) throw new HttpError(401, 'Email o API token incorrectos');
+    throw new HttpError(502, `No se pudo conectar con ${site}`);
+  }
+  const sid = randomBytes(32).toString('hex');
+  sessions.set(sid, { site, auth });
+  saveSessions();
+  res.cookie(SID, sid, { ...cookieOpts(req), maxAge: 90 * 24 * 3600_000 });
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const sid = cookies(req)[SID];
+  if (sid && sessions.delete(sid)) saveSessions();
+  res.clearCookie(SID, cookieOpts(req));
+  res.json({ ok: true });
+});
+
+app.use('/api', (req, _res, next) => {
+  const s = sessions.get(cookies(req)[SID]);
+  const c = s ? { ...s, session: true } : ENV_AUTH && { ...ENV_AUTH, session: false };
+  if (!c) throw new HttpError(401, 'Inicia sesión con tu cuenta de Jira', undefined, true);
+  jiraCtx.run({ api: c.site, ...c }, next);
+});
+
 app.get('/api/me', async (_req, res) => {
   const me = await jira('/rest/api/3/myself');
-  res.json({ ...user(me), baseUrl: BASE });
+  res.json({ ...user(me), baseUrl: ctx().site, session: ctx().session });
 });
 
 app.get('/api/boards', async (req, res) => {
@@ -160,9 +240,18 @@ app.get('/api/boards/:id/sprints', async (req, res) => {
 });
 
 app.get('/api/boards/:id/columns', async (req, res) => {
-  const cfg = await jira(`/rest/agile/1.0/board/${req.params.id}/configuration`);
+  const [cfg, statuses] = await Promise.all([
+    jira(`/rest/agile/1.0/board/${req.params.id}/configuration`),
+    jira('/rest/api/3/status').catch(() => []),
+  ]);
+  // The board config only carries status ids; names are needed to split a column per status.
+  const names = new Map(statuses.map((s) => [s.id, s.name]));
   res.json(
-    (cfg.columnConfig?.columns ?? []).map((c) => ({ name: c.name, statusIds: c.statuses.map((s) => s.id) })),
+    (cfg.columnConfig?.columns ?? []).map((c) => ({
+      name: c.name,
+      statusIds: c.statuses.map((s) => s.id),
+      statusNames: c.statuses.map((s) => names.get(s.id) ?? s.id),
+    })),
   );
 });
 
@@ -226,7 +315,7 @@ app.get('/api/issues/:key', async (req, res) => {
     timetracking: f.timetracking ?? {},
     project: { key: f.project?.key, name: f.project?.name },
     sprint: slimSprint(agile?.fields?.sprint) ?? null,
-    url: `${BASE}/browse/${issue.key}`,
+    url: `${ctx().site}/browse/${issue.key}`,
     comments: (comments.comments ?? []).map((c) => ({
       id: c.id,
       author: user(c.author),
@@ -234,6 +323,13 @@ app.get('/api/issues/:key', async (req, res) => {
       bodyHtml: rewriteHtml(c.renderedBody),
     })),
   });
+});
+
+// Subtasks of a story, or the issues of an epic, in rank order.
+app.get('/api/issues/:key/children', async (req, res) => {
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/i.test(req.params.key)) throw new HttpError(400, 'Clave inválida');
+  const issues = await searchJql(`parent = "${req.params.key}" ORDER BY Rank ASC`, LIST_FIELDS.split(','));
+  res.json(issues.map(slimIssue));
 });
 
 app.put('/api/issues/:key', async (req, res) => {
@@ -326,9 +422,10 @@ app.get('/api/priorities', async (_req, res) => {
   res.json((data.values ?? []).map((p) => ({ id: p.id, name: p.name, icon: p.iconUrl })));
 });
 
-let labelsCache = { at: 0, values: [] };
+const labelsCache = new Map();
 app.get('/api/labels', async (_req, res) => {
-  if (Date.now() - labelsCache.at > 5 * 60_000) {
+  const cached = labelsCache.get(ctx().api);
+  if (!cached || Date.now() - cached.at > 5 * 60_000) {
     const values = [];
     let startAt = 0;
     for (;;) {
@@ -337,9 +434,9 @@ app.get('/api/labels', async (_req, res) => {
       startAt += data.values.length;
       if (data.isLast || !data.values.length) break;
     }
-    labelsCache = { at: Date.now(), values };
+    labelsCache.set(ctx().api, { at: Date.now(), values });
   }
-  res.json(labelsCache.values);
+  res.json(labelsCache.get(ctx().api).values);
 });
 
 app.get('/api/parents', async (req, res) => {
@@ -361,7 +458,7 @@ app.get('/api/parents', async (req, res) => {
 app.get('/api/asset', async (req, res) => {
   const p = String(req.query.path ?? '');
   if (!p.startsWith('/')) throw new HttpError(400, 'path inválido');
-  const upstream = await fetch(BASE + p, { headers: { Authorization: AUTH } });
+  const upstream = await fetch(ctx().api + p, { headers: { Authorization: ctx().auth } });
   res.status(upstream.status);
   res.set('Content-Type', upstream.headers.get('content-type') ?? 'application/octet-stream');
   res.set('Cache-Control', 'private, max-age=3600');
@@ -370,7 +467,7 @@ app.get('/api/asset', async (req, res) => {
 
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
 
-const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
+const dist = path.join(ROOT, 'dist');
 if (existsSync(dist)) {
   app.use(express.static(dist));
   app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
@@ -379,7 +476,9 @@ if (existsSync(dist)) {
 app.use((err, _req, res, _next) => {
   const code = err.status ?? 500;
   if (code >= 500) console.error(err);
-  res.status(code).json({ error: err.message, details: err.details });
+  res.status(code).json({ error: err.message, details: err.details, ...(err.login && { login: true }) });
 });
 
-app.listen(PORT, () => console.log(`API en http://localhost:${PORT} → ${BASE || '(sin JIRA_BASE_URL)'}`));
+app.listen(PORT, () =>
+  console.log(`API en http://localhost:${PORT}${BASE ? ` → ${BASE}` : ''}${ENV_AUTH ? ' (token de .env sin sesión)' : ''}`),
+);

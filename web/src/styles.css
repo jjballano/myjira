@@ -125,6 +125,37 @@ code {
 .setup li {
   margin: 6px 0;
 }
+.login-form {
+  display: grid;
+  gap: 12px;
+  width: 360px;
+  max-width: 100%;
+  margin-top: 8px;
+}
+.login-form label {
+  display: grid;
+  gap: 4px;
+}
+.login-form label > span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.login-form input {
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 7px 9px;
+  outline: 0;
+}
+.login-form input:focus {
+  border-color: var(--accent);
+}
+.login-form input:disabled {
+  color: var(--muted);
+}
+.login-form .error {
+  margin: 0;
+}
 
 .sidebar {
   width: 232px;
@@ -931,6 +962,24 @@ code {
   margin-right: auto;
 }
 
+.children {
+  margin-top: 32px;
+}
+.children h3 {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.children-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.children-list .row:last-child {
+  border-bottom: 0;
+}
 .comments {
   margin-top: 40px;
   padding-top: 20px;
@@ -1089,6 +1138,38 @@ code {
   padding: 0 8px;
   font-weight: 500;
   text-transform: none;
+  min-width: 0;
+}
+.board-col-head[draggable] {
+  position: relative;
+  cursor: grab;
+}
+.board-col-head.drop-before::before,
+.board-col-head.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.board-col-head.drop-before::before {
+  left: -5px;
+}
+.board-col-head.drop-after::after {
+  right: -5px;
+}
+.col-split {
+  opacity: 0;
+}
+.board-col-head .muted {
+  margin-right: auto;
+}
+.board-col-head:hover .col-split,
+.col-split:focus-visible {
+  opacity: 1;
 }
 .lane {
   margin-top: 4px;
@@ -1265,8 +1346,39 @@ code {
   color: var(--text);
   cursor: default;
 }
-.subtask-stats:hover .tooltip {
+.subtask-stats:hover > .tooltip {
   display: block;
+}
+/* Invisible bridge over the gap, so the pointer can reach the tooltip without closing it. */
+.tooltip::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+}
+.tooltip-row.has-sub {
+  position: relative;
+}
+.tooltip-row.has-sub:hover {
+  background: var(--hover);
+}
+.tooltip-sub {
+  top: -6px;
+  left: calc(100% + 4px);
+  min-width: 0;
+  width: max-content;
+  max-width: 340px;
+}
+.tooltip-row.has-sub:hover > .tooltip-sub {
+  display: block;
+}
+.tooltip-link {
+  max-width: 340px;
+  cursor: pointer;
+}
+.tooltip-link:hover {
+  background: var(--hover);
+  color: var(--accent);
 }
 .tooltip-row {
   display: flex;

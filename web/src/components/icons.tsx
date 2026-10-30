@@ -191,6 +191,21 @@ export const Icon = {
       <path d="M8 3v10M4 9l4 4 4-4" {...stroke} />
     </svg>
   ),
+  Logout: ({ size = 14 }: IconProps) => (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <path d="M6 2.5H3.5v11H6M10 5l3 3-3 3M13 8H6" {...stroke} />
+    </svg>
+  ),
+  Split: ({ size = 14 }: IconProps) => (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <path d="M8 2.5v11M2.5 3.5h11v9h-11z" {...stroke} />
+    </svg>
+  ),
+  Merge: ({ size = 14 }: IconProps) => (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <path d="M2.5 3.5h11v9h-11zM5 8h6M9.5 6.5 11 8l-1.5 1.5" {...stroke} />
+    </svg>
+  ),
   Refresh: ({ size = 14 }: IconProps) => (
     <svg width={size} height={size} viewBox="0 0 16 16">
       <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.5h-2.5" {...stroke} />
