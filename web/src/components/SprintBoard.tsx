@@ -5,7 +5,7 @@ import { useApp, useIssueActions, useLocalStorage } from '../hooks';
 import { toast } from '../toast';
 import type { Column, Issue, ParentRef } from '../types';
 import { colorFor, typeColor } from '../util';
-import { Icon, PriorityIcon, StatusIcon } from './icons';
+import { Avatar, Icon, PriorityIcon, StatusIcon } from './icons';
 import { CardMenu, rankMoves, type MenuState } from './CardMenu';
 import { ContextMenu } from './ContextMenu';
 import { AssigneePicker, LabelChips } from './Pickers';
@@ -393,6 +393,7 @@ export function SprintBoard({
   hiddenStatusIds,
   collapsedStories,
   onToggleStory,
+  onFoldStories,
   currentSprintId,
   laneDrag,
   storyBands = false,
@@ -407,6 +408,7 @@ export function SprintBoard({
   hiddenStatusIds: string[];
   collapsedStories: string[];
   onToggleStory: (key: string) => void;
+  onFoldStories: (keys: string[], fold: boolean) => void;
   currentSprintId?: number;
   laneDrag: LaneDrag;
   /** Épica › Tarea: each task with subtasks gets its own band inside the lane. */
@@ -414,7 +416,7 @@ export function SprintBoard({
 }) {
   const qc = useQueryClient();
   const { transition, rank } = useIssueActions();
-  const { board } = useApp();
+  const { board, openIssue } = useApp();
   const [splitStore, setSplitStore] = useLocalStorage<Record<string, string[]>>('splitColumns', {});
   const split = useMemo(() => splitStore[board.id] ?? [], [splitStore, board.id]);
   const toggleSplit = (name: string) =>
@@ -490,6 +492,8 @@ export function SprintBoard({
   };
 
   const isFolded = (i: Issue) => !!i.issuetype?.subtask && !!i.parent && collapsedStories.includes(i.parent.key);
+  // A folded band shows only its header, so its task's card is out of view too.
+  const isHidden = (i: Issue) => isFolded(i) || (storyBands && subtasksOf.has(i.key) && collapsedStories.includes(i.key));
   const isMin = (c: Column) => minimized.includes(colKey(c));
   const grid: CSSProperties = { gridTemplateColumns: columns.map((c) => (isMin(c) ? `${MIN_WIDTH}px` : `minmax(${COL_MIN}px, 1fr)`)).join(' ') };
 
@@ -506,7 +510,8 @@ export function SprintBoard({
     const compute = () => {
       const br = board.getBoundingClientRect();
       // Sticky column header plus the sticky swimlane header hide the top of the scroll area.
-      const visibleTop = br.top + (board.querySelector<HTMLElement>('.board-cols')?.offsetHeight ?? 0) + 36;
+      const visibleTop =
+        br.top + (board.querySelector<HTMLElement>('.board-cols')?.offsetHeight ?? 0) + 36 + (board.querySelector<HTMLElement>('.band-head')?.offsetHeight ?? 0);
       const heads = board.querySelectorAll<HTMLElement>('.board-col-head');
       const found = new Map<string, Offscreen>();
       for (const s of subtasksOf.get(hoverStory) ?? []) {
@@ -615,7 +620,7 @@ export function SprintBoard({
       <div className="board-inner" style={{ minWidth: columns.reduce((w, c) => w + (isMin(c) ? MIN_WIDTH : COL_MIN) + 8, 24) }}>
         <div className="board-cols" style={grid}>
           {columns.map((c, idx) => {
-            const n = issues.filter((i) => !isFolded(i) && c.statusIds.includes(i.status?.id ?? '')).length;
+            const n = issues.filter((i) => !isHidden(i) && c.statusIds.includes(i.status?.id ?? '')).length;
             const splittable = !c.splitFrom && c.statusIds.length > 1;
             // Only the first of a split group offers to join it back.
             const firstOfSplit = c.splitFrom && columns[idx - 1]?.splitFrom !== c.splitFrom;
@@ -691,20 +696,57 @@ export function SprintBoard({
           const open = !collapsed.has(g.id);
           const rows = open ? rowsOf(g) : [];
           const bandKeys = rows.flatMap((r) => (r.band ? [r.band.key] : []));
+          // Tasks with subtasks in this lane: each heads a band, foldable all at once from the lane header.
+          const laneStories = storyBands ? [...new Set(g.issues.flatMap((i) => (i.issuetype?.subtask && i.parent ? [i.parent.key] : [])))] : [];
+          const lanesFolded = laneStories.length > 0 && laneStories.every((k) => collapsedStories.includes(k));
           return (
             <section key={g.id} className="lane">
               {g.header !== null && (
-                <div {...laneDrag(g.id)} className={`lane-head${laneDrag(g.id).className}`} onClick={() => onToggle(g.id)}>
+                <div
+                  {...laneDrag(g.id)}
+                  className={`lane-head${g.color ? ' lane-tinted' : ''}${laneDrag(g.id).className}`}
+                  style={g.color ? ({ '--lane': g.color } as CSSProperties) : undefined}
+                  onClick={() => onToggle(g.id)}
+                >
                   <div className="lane-title">
                     <Icon.Chevron open={open} />
                     {g.header}
                     <Progress issues={g.issues} />
+                    {open && laneStories.length > 0 && (
+                      <button
+                        className="icon-btn"
+                        title={`${lanesFolded ? 'Desplegar' : 'Plegar'} sus tareas (${laneStories.length})`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onFoldStories(laneStories, !lanesFolded);
+                        }}
+                      >
+                        {lanesFolded ? <Icon.UnfoldAll /> : <Icon.FoldAll />}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
-              {rows.map((row) => (
-                <div key={row.id} className={`lane-cells${row.band ? ' story-band' : ''}`} style={grid}>
-                  {cells(row.issues).map((list, colIdx) => {
+              {rows.map((row) => {
+                const band = row.band;
+                const bandFolded = !!band && collapsedStories.includes(band.key);
+                return (
+                <div key={row.id} className={`lane-cells${band ? ' story-band' : ''}${bandFolded ? ' folded' : ''}`} style={grid}>
+                  {band && (
+                    <div className="band-head" onClick={() => toggleStory(band.key)}>
+                      <span className="band-title" title={bandFolded ? 'Desplegar tarea' : 'Plegar tarea'}>
+                        <Icon.Chevron open={!bandFolded} />
+                        <StatusIcon status={(band.card ?? band.parent).status} size={13} />
+                        <span className="row-key">{band.key}</span>
+                        <span className="group-link" onClick={(e) => (e.stopPropagation(), openIssue(band.key))}>
+                          {(band.card ?? band.parent).summary}
+                        </span>
+                        {band.card && <Avatar user={band.card.assignee} size={16} />}
+                        <Progress issues={allSubtasksOf.get(band.key) ?? []} />
+                      </span>
+                    </div>
+                  )}
+                  {!bandFolded && cells(row.issues).map((list, colIdx) => {
                     const cellId = `${row.id}:${colIdx}`;
                     const col = columns[colIdx]!;
                     const shown = list.filter((i) => !isFolded(i));
@@ -747,7 +789,6 @@ export function SprintBoard({
                           const head = unit.head;
                           const storyKey = storyKeyOf(unit);
                           const folded = collapsedStories.includes(storyKey);
-                          if (head.kind === 'none' && folded) return null;
                           const startDrag = (kind: DragState['kind']) => () => {
                             drag.current = { key: storyKey, kind, rankKey: storyKey, laneId: row.id, cellId, colIdx };
                           };
@@ -797,7 +838,8 @@ export function SprintBoard({
                                     columns={allColumns}
                                     folded={false}
                                     onToggleSubtasks={() => {}}
-                                    highlight={hoverStory === storyKey ? 'hover' : flash.has(s.key) ? 'flash' : null}
+                                    // In a task's band it's already clear which subtasks are its own.
+                                    highlight={row.band ? null : hoverStory === storyKey ? 'hover' : flash.has(s.key) ? 'flash' : null}
                                     onDragStart={() => {
                                       drag.current = { key: s.key, kind: 'subtask', rankKey: s.key, parentKey: s.parent?.key, laneId: row.id, cellId, colIdx };
                                     }}
@@ -821,7 +863,8 @@ export function SprintBoard({
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
             </section>
           );
         })}

@@ -14,6 +14,7 @@
   --accent-2: #7c86e0;
   --danger: #e5484d;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border-2);
+  --lane-tint: 12%;
   color-scheme: dark;
 }
 
@@ -31,6 +32,7 @@
     --muted: #8a8d95;
     --faint: #d4d5da;
     --shadow: 0 8px 30px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border-2);
+    --lane-tint: 7%;
     color-scheme: light;
   }
 }
@@ -1248,6 +1250,8 @@ code {
 }
 .board-inner {
   padding: 0 12px 60px;
+  /* Height of the sticky column header, which the sticky swimlane and band headers sit under. */
+  --cols-h: 44px;
 }
 .board-cols,
 .lane-cells {
@@ -1259,6 +1263,7 @@ code {
   top: 0;
   z-index: 4;
   background: var(--bg);
+  height: var(--cols-h);
   padding: 10px 0 8px;
 }
 /* Sticky headers reach over .board-inner's side padding, so nothing scrolled beneath (like a
@@ -1361,7 +1366,7 @@ code {
 }
 .lane-head {
   position: sticky;
-  top: 40px;
+  top: var(--cols-h);
   z-index: 3;
   background: var(--bg);
   height: 36px;
@@ -1370,6 +1375,21 @@ code {
   cursor: pointer;
   user-select: none;
   border-bottom: 1px solid var(--border);
+}
+/* Epic swimlanes: a tint and a bar of the epic's colour set them apart from the task bands
+   inside. The bar is a pseudo-element so the drop indicator's box-shadow still shows. */
+.lane-head.lane-tinted {
+  background: color-mix(in srgb, var(--lane) var(--lane-tint), var(--bg));
+}
+.lane-head.lane-tinted::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--lane);
+}
+.lane-tinted .group-title {
+  font-weight: 600;
 }
 /* Swimlane drop indicator, drawn on the header it lands before/after. */
 .lane-drop-before,
@@ -1408,6 +1428,54 @@ code {
   border-radius: 8px;
   outline: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent);
   outline-offset: 5px;
+}
+/* The band's header: folds it down to this one line. Sticks under the epic's header while the
+   band scrolls past (the band itself bounds it). */
+.band-head {
+  grid-column: 1 / -1;
+  position: sticky;
+  top: calc(var(--cols-h) + 36px);
+  z-index: 2;
+  height: 30px;
+  margin: -5px 0 -4px;
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border-radius: 8px 8px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.story-band.folded .band-head {
+  margin-bottom: -5px;
+  border-radius: 8px;
+}
+.band-head:hover {
+  color: var(--text);
+}
+.band-title {
+  position: sticky;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  max-width: calc(100vw - 300px);
+  min-width: 0;
+}
+.band-title > * {
+  flex: none;
+}
+.band-title > .group-link {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.band-title > svg:first-child {
+  color: var(--muted);
+}
+.band-title .row-key {
+  width: auto;
 }
 /* Away from the task's card there's nothing to indent under. */
 .unit-bare .card-sub {
